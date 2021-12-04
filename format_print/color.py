@@ -2,7 +2,7 @@ from colorama import Fore, Back, init, Style
 import sys
 
 convert = True if sys.platform == "win32" else False
-init(convert=False, autoreset=True, strip=False)  # Autoreset color after printing
+init(convert=True, autoreset=True, strip=False)  # Autoreset color after printing
 
 
 class Color:

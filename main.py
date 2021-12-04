@@ -1,249 +1,155 @@
-import logging
+import argparse
 import os
-import re
-from pathlib import Path
-from typing import Union
+import shutil
+import sys
 
 import execute
 from format_print import fprint
-from re_patterns import RePatterns
-
-
-class AuaxAPK:
-    def __init__(self,
-                 apktool_path: Union[str, Path],
-                 apksigner_path: Union[str, Path],
-                 apk_path: Union[str, Path]):
-        # Get the root directory of the file
-        self.root = os.path.dirname(os.path.abspath(__file__))
-
-        # Tool paths
-        self.apktool_path = apktool_path
-        self.apksigner_path = apksigner_path
-
-        # APK Path
-        self.apk_path = apk_path
-
-        # Path to the last APK created
-        self.last_generated_apk = None
-
-        # Global variables
-        self.decompile_dir = None
-        self.manifest_path = None
-        self.strings_path = None
-
-    def decompile(self, output: Union[str, Path] = None, overwrite: bool = True) -> bool:
-        """
-        Decompile an APK file.
-        :param output: the output folder
-        :param overwrite: whether to overwrite a folder
-        :return: str (path to the decompiled folder)
-        """
-
-        # Create the command
-        command = f'java -jar {self.apktool_path} d {self.apk_path}'
-        if output:
-            command += f" -o {output}"
-        if overwrite:
-            command += " -f"
-
-        # Print the commands
-        fprint.logger("Command", command, mode="info")
-        fprint.logger("Decompile", "Trying to decompile APK...", mode="info")
-
-        _, stderr = execute.command(command)
-
-        # Exit if there's an error
-        if stderr:
-            logging.error(stderr)
-            fprint.logger("Decompile", stderr, mode="error")
-            return False
-
-        # Get the decompiled APK folder (same name as the base APK)
-        directory = os.path.join(self.apk_path.replace(".apk", "")) if not output else output
-
-        fprint.logger("Status", "APK Decompiled successfuly", mode="success")
-        fprint.logger("Path", f"The decompiled APK is in: {directory}", mode="info")
-
-        # Assign the manifest path
-        self.manifest_path = os.path.join(directory, "AndroidManifest.xml")
-        # Assign the strings.xml file path
-        self.strings_path = os.path.join(directory, "res", "values", "strings.xml")
-
-        self.decompile_dir = directory
-        return True
-
-    def rename_package(self, val: str) -> bool:
-        """
-        Update the manifest located inside the decompiled APK file.
-        Changes the AndroidManifest.xml.
-        :return:
-        """
-        if not self.manifest_path:
-            logging.error("self.manifest_path not defined")
-            fprint.logger("Status", "Please decompile the APK or set the paths of the already decompiled APK manually.",
-                          mode="error")
-            return False
-
-        # Open the manifest file
-        try:
-            with open(self.manifest_path, "r") as file:
-                manifest = file.read()
-
-        except FileNotFoundError:
-            # If the manifest is not found
-            logging.error(FileNotFoundError)
-            fprint.logger("Rename Package", f"Manifest not found in: {self.decompile_dir}", mode="error")
-            return False
-
-        fprint.logger("Manifest found", self.manifest_path, mode="success")
-
-        # Get the package name
-        package_name = re.search(RePatterns.package_name, manifest)
-        fprint.logger("Package Name Found", package_name.group(0), mode="success")
-
-        # Remove the com.app from the package name = ("com.app.example" -> "example")
-        name = package_name.group(0).replace("com.app.", "")
-        # Replace all the occurrences of the name with the new one
-        new_xml = re.sub(name, val, manifest, flags=re.IGNORECASE)
-
-        # Write the new manifest
-        with open(self.manifest_path, "w") as file:
-            manifest = file.write(new_xml)
-
-        fprint.logger("Manifest Updated", self.manifest_path, mode="success")
-
-        return True
-
-    def rename_app(self, val1: str, val2: str) -> bool:
-        """
-        Get all the lines with the string "app_name".
-        Then replace the val1 for the val2 only in those lines.
-        :param val1: val1
-        :param val2: val2
-        :return: bool
-        """
-
-        if not self.strings_path:
-            logging.error("self.strings_path not defined")
-            fprint.logger("Status", "Please decompile the APK or set the paths of the already decompiled APK manually.",
-                          mode="error")
-            return False
-
-        # Open the strings file
-        try:
-            with open(self.strings_path, "r", encoding="utf-8") as file:
-                strings = file.read()
-
-        except FileNotFoundError:
-            # If the file is not found
-            logging.error(FileNotFoundError)
-            fprint.logger("Status", f"File strings.xml not found in: {self.decompile_dir}", mode="error")
-            return False
-
-        fprint.logger("File found", self.strings_path, mode="success")
-
-        lines = []
-        for line in strings.splitlines():
-            if "app_name" in line:
-                line = re.sub(val1, val2, line, flags=re.IGNORECASE)
-            lines.append(line)
-
-        new_strings = "\n".join(lines) + "\n"
-
-        if new_strings == strings:
-            fprint.logger("Rename", "No values replaced!", mode="info")
-            return False
-
-        with open(self.strings_path, "w", encoding="utf-8") as file:
-            file.write(new_strings)
-
-        fprint.logger("Rename", "Values replaced!", mode="success")
-
-        return True
-
-    def build(self, output: Union[str, Path] = None) -> bool:
-        fprint.logger("Status", "Trying to build the new APK...", mode="info")
-
-        # Create the command
-        command = f'java -jar {self.apktool_path} b {self.decompile_dir}'
-        # Add params to the command
-        command += f" -o {output} --use-aapt2" if output else " --use-aapt2"
-
-        fprint.logger("Command", command, mode="info")
-
-        # Build the solution directory with the updated file(s)
-        _, stderr = execute.command(command)
-
-        if stderr:
-            logging.error(stderr)
-            fprint.logger("Status", "Couldn't build the APK", "error")
-            return False
-
-        if output:
-            self.last_generated_apk = output
-            fprint.logger("Built", "The APK has been built successfully", mode="success")
-        else:
-            self.last_generated_apk = os.path.join(self.decompile_dir, "dist", os.path.basename(self.apk_path))
-            fprint.logger("Built", "The APK has been built successfully inside the dist directory", mode="success")
-
-        return True
-
-    def sign(self, output: Union[str, Path] = None) -> bool:
-        """
-        Generate a new signed APK valid for installation.
-        :param output: path to save the signed APK
-        :return: bool
-        """
-        fprint.logger("Status", "Trying to sign the APK...", mode="info")
-
-        # Create the command
-        command = f'java -jar {self.apksigner_path} --apks {self.last_generated_apk}'
-
-        self.last_generated_apk = os.path.join(self.decompile_dir, "dist", ".".join(
-            os.path.basename(self.apk_path).split('.')[:-1]) + "aligned-debugSigned.apk")
-
-        if output:
-            self.last_generated_apk = output
-            command += f" -o {output}"
-
-        fprint.logger("Command", command, mode="info")
-        # Sign the APK
-        stdout, stderr = execute.command(command)
-
-        if not stderr:
-            fprint.logger("Signed", "Successfully signed APK!", mode="success")
-            fprint.logger("Find your signed APK in", self.last_generated_apk, mode="info")
-            return True
-        logging.error(stderr)
-        fprint.logger("Status", "Couldn't sign the APK", mode="error")
-        return False
-
+from tools_wrapper import AuaxAPK
 
 """
-GLOBAL
+Welcome to the main file for the APK editor by Auax (2006).
+---------------------------------------------------------------------
+Warning:
+The AuaxAPK.rename_package method might not work during the build of the APK.
+It's not recommended to use it for now. Therefore it's not enabled as a CLI option.
+
 """
 
-# THE AuaxAPK.rename_package method might not work during the build of the APK
-# It's recommended not to used it for now.
 
-root = os.path.dirname(os.path.abspath(__file__))
+def exit_c(b):
+    if not b:
+        sys.exit(-1)
 
-# Tools path
-apktool_path = os.path.join(root, "libs", "apktool", "apktool-2.6.0.jar")
-apksigner_path = os.path.join(root, "libs", "apksigner", "uber-apk-signer-1.2.1.jar")
 
-# APK path
-apk_path = os.path.join(root, "pou.apk")
+def main():
+    # Path to the project's root folder
+    root = os.path.dirname(os.path.abspath(__file__))
 
-apk = AuaxAPK(apktool_path, apksigner_path, apk_path)
-apk.decompile()
-apk.rename_app("Pou", "Z😨A😈Z💯Z🔥L☠️E")
-apk.build()
-apk.sign()
+    # Arguments
+    try:
+        parser = argparse.ArgumentParser(description="Auax's APK Editor")
+        parser.add_argument("-i",
+                            "--input",
+                            metavar="APK input path",
+                            type=str,
+                            help="APK input path.",
+                            required=True)
 
-ask = input("Open Folder? (y/n): ")
-if "y" in ask.lower():
-    execute.command(f"explorer {os.path.dirname(apk.last_generated_apk)}")
+        parser.add_argument("-instr",
+                            "--instring",
+                            metavar="Input string",
+                            type=str,
+                            help="Input string that will be replaced with the ouput string in the Strings.xml file.",
+                            required=True)
 
-print("Thanks for using APKEditor (by AUAX). Happy coding! ❤️")
+        parser.add_argument("-outstr",
+                            "--outstring",
+                            metavar="Output string",
+                            type=str,
+                            help="The output string that will replace the input string in the Strings.xml file.",
+                            required=True)
+
+        parser.add_argument("-o",
+                            "--output",
+                            metavar="target",
+                            type=str,
+                            nargs="?",
+                            help="APK output path.")
+
+        parser.add_argument("-apt",
+                            "-apktool",
+                            metavar="apktool path",
+                            type=str,
+                            nargs="?",
+                            help="The path to the apktool JAR file.")
+
+        parser.add_argument("-aps",
+                            "-apksigner",
+                            metavar="apktool path",
+                            type=str,
+                            nargs="?",
+                            help="The path to the apksigner JAR file.")
+
+        parser.add_argument("-w",
+                            "--overwrite",
+                            metavar="overwrite",
+                            type=str,
+                            nargs="?",
+                            help="Overwrite files if necessary.")
+
+        args = parser.parse_args()  # Parse args
+
+    except ValueError:
+        fprint.logger("Argument", "Please pass the correct arguments! Add -h for help.", mode="error")
+        sys.exit(-1)
+
+    # Handle errors
+    if not os.path.exists(args.input):
+        fprint.logger("Argument", "APK path does not exist!", mode="error")
+        sys.exit(-1)
+
+    if args.apt and args.aps:
+        apktool_path = args.apt
+        apksigner_path = args.aps
+
+    # APKTool
+    if not args.apt:
+        fprint.logger("Argument", "Trying to automatically detect the path to the apktool JAR file...", mode="info")
+        fprint.logger("Default 'apktool' name", "apktool.jar", mode="info")
+        apktool_path = os.path.join(root, "libs", "apktool", "apktool.jar")
+
+        if not os.path.exists(apktool_path):
+            fprint.logger("APKTOOL not found",
+                          "It should be inside the root folder of the project, under libs/apktool",
+                          mode="error")
+            sys.exit(-1)
+        fprint.logger("Found", "apksigner", mode="success")
+
+    # APKSigner
+    if not args.aps:
+        fprint.logger("Argument", "Trying to automatically detect the path to the apksigner JAR file...", mode="info")
+        fprint.logger("Default 'apksigner' name", "apksigner.jar", mode="info")
+        apksigner_path = os.path.join(root, "libs", "apksigner", "apksigner.jar")
+
+        if not os.path.exists(apksigner_path):
+            fprint.logger("APKSIGNER not found",
+                          "It should be inside the root folder of the project, under libs/apksigner",
+                          mode="error")
+            sys.exit(-1)
+        fprint.logger("Found", "apksigner", mode="success")
+
+    input_path = args.input
+    output_path = args.output
+    overwrite = args.overwrite
+    instring = args.instring
+    outstring = args.outstring
+
+    apk = AuaxAPK(apktool_path, apksigner_path, input_path)
+    exit_c(apk.decompile())
+    exit_c(apk.rename_app(instring, outstring))
+    exit_c(apk.build())
+    exit_c(apk.sign(output_path if output_path else None))
+
+    if output_path:
+        ask = input("Remove decompiled folder? (y/n): ")
+        if "y" in ask.lower():
+            shutil.rmtree(apk.decompile_dir)
+            fprint.logger("Folder deleted", apk.decompile_dir, mode="success")
+
+    ask = input("Open Folder? (y/n): ")
+    if "y" in ask.lower():
+        print(apk.last_generated_apk)
+        execute.command(f"explorer {os.path.dirname(apk.last_generated_apk)}")
+
+
+if __name__ == "__main__":
+    try:
+        os.system("cls" if os.name == "nt" else "clear")
+        print("AUAX APK EDITOR\n" + "-" * 50 + "\n")
+        main()
+        print("\n\nThanks for using APKEditor (by AUAX). Happy coding! ❤️")
+
+    except KeyboardInterrupt:
+        fprint.logger("Exiting...", "KeyboardInterrupt detected!", "success")
+        sys.exit(-1)
