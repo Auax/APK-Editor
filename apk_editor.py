@@ -40,14 +40,14 @@ def main():
                             "--instring",
                             metavar="Input string",
                             type=str,
-                            help="Input string that will be replaced with the ouput string in the Strings.xml file.",
+                            help="Input string will be replaced with the output string in the Strings.xml file.",
                             required=True)
 
         parser.add_argument("-outstr",
                             "--outstring",
                             metavar="Output string",
                             type=str,
-                            help="The output string that will replace the input string in the Strings.xml file.",
+                            help="The output string will replace the input string in the Strings.xml file.",
                             required=True)
 
         parser.add_argument("-o",
@@ -58,14 +58,14 @@ def main():
                             help="APK output path.")
 
         parser.add_argument("-apt",
-                            "-apktool",
+                            "--apktool",
                             metavar="apktool path",
                             type=str,
                             nargs="?",
                             help="The path to the apktool JAR file.")
 
         parser.add_argument("-aps",
-                            "-apksigner",
+                            "--apksigner",
                             metavar="apktool path",
                             type=str,
                             nargs="?",
